@@ -1,65 +1,94 @@
 package tf.idf.java;
 
-import org.apache.commons.io.FileUtils;
+import javafx.util.Pair;
+import opennlp.tools.chunker.ChunkerME;
+import opennlp.tools.chunker.ChunkerModel;
+import opennlp.tools.cmdline.postag.POSModelLoader;
+import opennlp.tools.postag.POSModel;
+import opennlp.tools.postag.POSTaggerME;
+import opennlp.tools.tokenize.WhitespaceTokenizer;
+import opennlp.tools.util.Span;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import java.io.InputStream;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class TFIDF {
     private Map<String, Map<String, AtomicInteger>> corpusBow;
-    private boolean caseSensitive = false;
+    private ChunkerME chunker;
+    private POSTaggerME tagger;
+    private WhitespaceTokenizer whitespaceTokenizer = WhitespaceTokenizer.INSTANCE;
+    private String determiners_en = "the, a, an, this, that, these, those," +
+            " my, your, his, her, its, our, their, much, many, few, most, some, any, enough, all," +
+            " both, half, either, neither, each, every, other, another, such, what, rather, quite";
 
-    public TFIDF() {
-        this.corpusBow = new HashMap<>();
+
+    public TFIDF() throws IOException {
+        this(new HashMap<>());
     }
 
     /**
      *
-     * @param corpusBow - Initiate the class with already provided Bag of words
+     * @param corpusBow - Initiate the class with already provided Bag of words (BOW)
      */
-    public TFIDF(Map<String, Map<String, AtomicInteger>> corpusBow) {
+    public TFIDF(Map<String, Map<String, AtomicInteger>> corpusBow) throws IOException {
         this.corpusBow = corpusBow;
-    }
-
-    public TFIDF(String folderLocation) throws IOException {
-        this(folderLocation, false);
+        initParseAndChunk();
     }
 
     /**
      *
-     * @param folderLocation - Folder location where corpus text(UTF-8) files are at
-     * @param caseSensitive - weather corpusBow should be case sensitive or not
+     * @param dataset - Iterator to go over the dataset
      */
-    public TFIDF(String folderLocation, boolean caseSensitive) throws IOException {
-        this.caseSensitive = caseSensitive;
-        if(folderLocation != null) {
-            File corpusFolder = new File(folderLocation);
-            if (!corpusFolder.exists()) {
-                throw new FileNotFoundException("Corpus folder-" + folderLocation + ", does not exist!");
-            } else if(!corpusFolder.isDirectory()) {
-                throw new FileNotFoundException("Expected folder not file-" + folderLocation);
-            }
+    public TFIDF(Iterator<Pair<String, String>> dataset) throws IOException {
+        initParseAndChunk();
+        this.corpusBow = fromCorpusToBow(dataset);
+    }
 
-            this.corpusBow = fromCorpusToBow(corpusFolder);
-        }
+    private void initParseAndChunk() throws IOException {
+        InputStream inputStream = this.getClass().getResourceAsStream("/en-chunker.bin");
+        ChunkerModel chunkerModel = new ChunkerModel(inputStream);
+        this.chunker = new ChunkerME(chunkerModel);
+
+        File file = new File(this.getClass().getResource("/en-pos-maxent.bin").getFile());
+        POSModel model = new POSModelLoader().load(file);
+        this.tagger = new POSTaggerME(model);
     }
 
     public double getTF(String docName, String term) {
+        term = term.toLowerCase();
         final Map<String, AtomicInteger> doc = this.getDoc(docName);
-        if(doc.containsKey(term)) {
-            return doc.get(term).get() / Double.valueOf(doc.size());
+        if(doc != null) {
+            double total = 0.0;
+            if(isPhrase(term)) {
+                for (String key : doc.keySet()) {
+                    if (key.equals(term)) {
+                        total += doc.get(key).get();
+                    } else if (key.contains(term)) {
+                        total += doc.get(key).get() / 2.0;
+                    }
+                }
+            } else if(doc.containsKey(term)) {
+                total = doc.get(term).get();
+            }
+
+            return total / Double.valueOf(doc.size());
+
         }
 
         return 0.0;
     }
 
     public double getIDF(String term) {
+        term = term.toLowerCase();
         final int numberOfDocsWithTerm = this.numberOfDocsWithTerm(term);
-        return Math.log(Double.valueOf(this.corpusBow.size()) / Double.valueOf(numberOfDocsWithTerm));
+        if(numberOfDocsWithTerm != 0) {
+            return Math.log(Double.valueOf(this.corpusBow.size()) / Double.valueOf(numberOfDocsWithTerm));
+        } else {
+            return 0;
+        }
     }
 
     public double getTFIDF(String docName, String term) {
@@ -83,7 +112,15 @@ public class TFIDF {
     public int numberOfDocsWithTerm(String term) {
         int count = 0;
         for(Map<String, AtomicInteger> doc : this.corpusBow.values()) {
-            if(doc.containsKey(term)) {
+            final boolean nounPhrase = isPhrase(term);
+            if(nounPhrase) {
+                for (String key : doc.keySet()) {
+                    if(key.contains(term)) {
+                        count++;
+                        break;
+                    }
+                }
+            } else if(doc.containsKey(term)) {
                 count++;
             }
         }
@@ -91,18 +128,26 @@ public class TFIDF {
         return count;
     }
 
+    boolean isPhrase(String term) {
+        if (term.split(" ").length > 1) {
+            return true;
+        }
+
+        return false;
+    }
+
     /**
      *
-     * @param folderLocation - Folder location where corpus text(UTF-8) files are at
+     * @param corpusToMap - Map for FileName, File text(UTF-8)
      * @return Bag of words for each document (key=doc name) in the corpus, inner map key=word, value=count
      * @throws IOException
      */
-    Map<String, Map<String, AtomicInteger>> fromCorpusToBow(File folderLocation) throws IOException {
+    Map<String, Map<String, AtomicInteger>> fromCorpusToBow(Iterator<Pair<String, String>> corpusToMap) {
         Map<String, Map<String, AtomicInteger>> localBow = new HashMap<>();
-        for (File file : folderLocation.listFiles()) {
-            String fileAsString = FileUtils.readFileToString(file, "UTF-8");
-            Map<String, AtomicInteger> docBow = convertDocStringToBow(fileAsString);
-            localBow.put(file.getName(), docBow);
+        while(corpusToMap.hasNext()) {
+            Pair<String, String> next = corpusToMap.next();
+            Map<String, AtomicInteger> docBow = convertDocStringToBow(next.getValue());
+            localBow.put(next.getKey(), docBow);
         }
 
         return localBow;
@@ -119,15 +164,35 @@ public class TFIDF {
                 docBow.put(word, new AtomicInteger(1));
             }
         }
+
+        String[] tags = this.tagger.tag(cleanSplitText);
+        Span[] spanResults = this.chunker.chunkAsSpans(cleanSplitText, tags);
+        for (Span span : spanResults) {
+            if(span.getType().equals("NP")) {
+                StringBuilder sb = new StringBuilder();
+                for(int i = span.getStart(); i < span.getEnd() ; i++ ) {
+                    if(i == span.getStart() && this.determiners_en.contains(cleanSplitText[i] + ","))
+                        continue;
+
+                    sb.append(cleanSplitText[i]).append(" ");
+                }
+
+                String phrase = sb.toString().trim();
+                if (docBow.containsKey(phrase)) {
+                    docBow.get(phrase).incrementAndGet();
+                } else {
+                    docBow.put(phrase, new AtomicInteger(1));
+                }
+            }
+        }
+
         return docBow;
     }
 
     String[] cleanSplitTextAndPunc(String fileAsString) {
-        if(this.caseSensitive) {
-            fileAsString = fileAsString.toLowerCase();
-        }
-
-        String[] words = fileAsString.replaceAll("\\p{Punct}", "").split(" ");
+        fileAsString = fileAsString.toLowerCase();
+        String cleanString = fileAsString.replaceAll("\\p{Punct}", "");
+        String[] words = whitespaceTokenizer.tokenize(cleanString);
         return words;
     }
 }

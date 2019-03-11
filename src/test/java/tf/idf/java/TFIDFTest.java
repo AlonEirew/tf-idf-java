@@ -3,13 +3,14 @@ package tf.idf.java;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class TFIDFTest {
 
     @Test
-    public void convertDocStringToBowTest() {
+    public void convertDocStringToBowTest() throws IOException {
         TFIDF corpus = new TFIDF();
         String testText = getString1();
 
@@ -20,12 +21,11 @@ public class TFIDFTest {
             count += atomicInteger.get();
         }
 
-        String[] ret = corpus.cleanSplitTextAndPunc(testText);
-        Assert.assertEquals("Not same count", ret.length, count);
+        Assert.assertEquals("Not same count", 236, count);
     }
 
     @Test
-    public void getTFIDFTest() {
+    public void getTFIDFTest() throws IOException {
         TFIDF corpus = new TFIDF();
         String testText1 = getString1();
         String testText2 = getString2();
@@ -37,13 +37,25 @@ public class TFIDFTest {
         corpus.addDoc("2", stringAtomicIntegerMap2);
 
         double tf = corpus.getTF("1", "tf–idf");
-        Assert.assertEquals("Not Equal", 0.04545, tf, 0.0001);
+        Assert.assertEquals("Not Equal", 0.04379, tf, 0.0001);
 
         double idf = corpus.getIDF("tf–idf");
         Assert.assertEquals("Not Equal", 0.69314, idf, 0.0001);
 
         double tfidf = corpus.getTFIDF("1", "tf–idf");
-        Assert.assertEquals("Not Equal", 0.0315, tfidf, 0.0001);
+        Assert.assertEquals("Not Equal", 0.0303, tfidf, 0.0001);
+    }
+
+    @Test
+    public void tfidfWithDataSet() throws IOException {
+        TFIDFTest test = new TFIDFTest();
+        final String corpus = test.getClass().getResource("/corpus").getFile();
+        MapDataSet mapDataSet = new MapDataSet(corpus);
+        TFIDF tfidf = new TFIDF(mapDataSet.iterator());
+        final double ml1 = tfidf.getTFIDF("Machine_Learning.txt", "Machine Learning");
+        Assert.assertEquals("Not Equal", 0.0266, ml1, 0.0001);
+        final double ml2 = tfidf.getTFIDF("Machine_Learning.txt", "Learning");
+        Assert.assertEquals("Not Equal", 0.0373, ml2, 0.0001);
     }
 
     private String getString1() {

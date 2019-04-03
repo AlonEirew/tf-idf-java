@@ -4,7 +4,7 @@ Java API for extracting TF (term Frequency), IDF (inverse document frequency) an
 
 ### Code Example:
 
-        MapDataSet mapDataSet = new MapDataSet("/Users/aeirew/workspace/tf-idf-java/src/test/resources/corpus");
+        MapDataSet mapDataSet = new MapDataSet("/src/test/resources/corpus");
         TFIDF tfidf = new TFIDF(mapDataSet.iterator());
         final double ml1 = tfidf.getTFIDF("Machine_Learning.txt", "Machine Learning");
         Assert.assertEquals("TFIDF value for Machine Learning", 0.0266, ml1, 0.0001);
